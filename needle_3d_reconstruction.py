@@ -339,6 +339,39 @@ def arc_midpoint_3d(pts3d, circle):
         'plane_normal':  n,
     }
 
+
+def arc_midpoint_from_matches(pts3d):
+    """Find midpoint by sorting 3D match points along the arc via greedy nearest-neighbour chain."""
+    pts = np.asarray(pts3d, dtype=np.float64)
+    n = len(pts)
+    if n == 0:
+        return None
+
+    # Start from the point furthest from the centroid (one endpoint of the arc)
+    centroid = pts.mean(axis=0)
+    start = int(np.argmax(np.linalg.norm(pts - centroid, axis=1)))
+
+    visited = np.zeros(n, dtype=bool)
+    order = [start]
+    visited[start] = True
+    for _ in range(n - 1):
+        last = pts[order[-1]]
+        dists = np.linalg.norm(pts - last, axis=1)
+        dists[visited] = np.inf
+        nxt = int(np.argmin(dists))
+        order.append(nxt)
+        visited[nxt] = True
+
+    sorted_pts = pts[order]
+    mid_3d = sorted_pts[n // 2]
+
+    return {
+        'midpoint_3d':  mid_3d,
+        'endpoint1_3d': sorted_pts[0],
+        'endpoint2_3d': sorted_pts[-1],
+        'n_pts':        n,
+    }
+
 # ---------------------------------------------------------------------------
 # Projection helper
 # ---------------------------------------------------------------------------
@@ -558,15 +591,21 @@ def main():
     # --- Arc midpoint ---
     print('\n[7/7] Computing 3D arc midpoint ...')
     arc = arc_midpoint_3d(pts3d, circle)
+    arc_match = arc_midpoint_from_matches(pts3d)
 
     print('\n=== RESULT ===')
-    print(f"3D MIDPOINT (left camera frame): {arc['midpoint_3d']}  mm")
+    print(f"3D MIDPOINT (circle fit): {arc['midpoint_3d']}  mm")
     print(f"  depth Z        : {arc['midpoint_3d'][2]:.3f} mm")
     print(f"  arc sweep      : {arc['arc_sweep_deg']:.1f} deg")
     print(f"  needle radius  : {circle['radius']:.3f} mm")
     print(f"  plane normal   : {arc['plane_normal']}")
     print(f"  endpoint 1     : {arc['endpoint1_3d']}")
     print(f"  endpoint 2     : {arc['endpoint2_3d']}")
+    print(f"3D MIDPOINT (match median): {arc_match['midpoint_3d']}  mm")
+    print(f"  depth Z        : {arc_match['midpoint_3d'][2]:.3f} mm")
+    print(f"  n_pts          : {arc_match['n_pts']}")
+    print(f"  endpoint 1     : {arc_match['endpoint1_3d']}")
+    print(f"  endpoint 2     : {arc_match['endpoint2_3d']}")
 
     # --- Visualisation ---
     if not args.no_vis:
