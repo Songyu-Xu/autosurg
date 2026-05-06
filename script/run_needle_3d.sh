@@ -9,12 +9,17 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
+
+# ── GPU selection (set CUDA_VISIBLE_DEVICES to override, e.g. GPU=1 ./run_needle_3d.sh) ──
+GPU="${GPU:-0}"
+export CUDA_VISIBLE_DEVICES="${GPU}"
 
 # ── Default paths (edit to match your setup) ─────────────────────────────────
 LEFT_IMG="${LEFT_IMG:-/home/songyu/Datasets/Autosurg/cuhk/Cali_Data_Needle_Image/needle_image/left/img_0001.jpg}"
 RIGHT_IMG="${RIGHT_IMG:-/home/songyu/Datasets/Autosurg/cuhk/Cali_Data_Needle_Image/needle_image/right/img_0001.jpg}"
 YOLO_WEIGHTS="${YOLO_WEIGHTS:-/home/songyu/Project/yolo/YOLOv8_needle/runs/detect/runs/needle_finetune/cuhk_v1/weights/best.pt}"
-OUTPUT_DIR="${OUTPUT_DIR:-${SCRIPT_DIR}/outputs_3d}"
+OUTPUT_DIR="${OUTPUT_DIR:-${PROJECT_DIR}/outputs_3d}"
 
 # Optional: point to a stereo_calib.npz to override the built-in calibration.
 # CALIB_NPZ="${SCRIPT_DIR}/stereo_calib.npz"
@@ -22,7 +27,7 @@ OUTPUT_DIR="${OUTPUT_DIR:-${SCRIPT_DIR}/outputs_3d}"
 # ── Activate conda / venv if needed ──────────────────────────────────────────
 # Uncomment and adjust one of the lines below if you use an environment.
 # source ~/miniconda3/etc/profile.d/conda.sh && conda activate autosurg
-source "${SCRIPT_DIR}/.venv/bin/activate"
+source "${PROJECT_DIR}/.venv/bin/activate"
 
 # ── Build argument list ───────────────────────────────────────────────────────
 ARGS=(
@@ -47,9 +52,11 @@ echo "  left    : ${LEFT_IMG}"
 echo "  right   : ${RIGHT_IMG}"
 echo "  weights : ${YOLO_WEIGHTS}"
 echo "  output  : ${OUTPUT_DIR}"
+echo "  GPU     : ${CUDA_VISIBLE_DEVICES}"
 echo "------------------------------------------------------------"
 
-python "${SCRIPT_DIR}/needle_3d_reconstruction.py" "${ARGS[@]}"
+python "${PROJECT_DIR}/needle_3d_reconstruction.py" "${ARGS[@]}"
+
 
 echo "------------------------------------------------------------"
 echo "Done. Results saved to: ${OUTPUT_DIR}"
