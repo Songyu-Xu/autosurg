@@ -1,0 +1,5 @@
+outputs_3d
+results
+sam3
+.venv/
+__pycache__/
