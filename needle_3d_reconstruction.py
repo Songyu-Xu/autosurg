@@ -58,27 +58,29 @@ def parse_args():
 # Calibration
 # ---------------------------------------------------------------------------
 
-# Built-in calibration from camera_calibration_1920_1080.yaml
+# Built-in calibration from stereo_calibration_new.yaml
 _DEFAULT_IMG_W, _DEFAULT_IMG_H = 1920, 1080
 
-_DEFAULT_K1 = np.array([[1343.863850, -0.091497, 914.818627],
-                         [   0.000000, 1343.858809, 514.994823],
-                         [   0.000000,    0.000000,   1.000000]], dtype=np.float64)
+_DEFAULT_K1 = np.array([[1342.1035839657784, 0.0,               920.5005859206799],
+                         [   0.0,            1340.9475695814524, 538.1550519345003],
+                         [   0.0,               0.0,               1.0           ]], dtype=np.float64)
 
-_DEFAULT_K2 = np.array([[1355.623801, -0.808676, 1048.970226],
-                         [   0.000000, 1354.743654,  515.610035],
-                         [   0.000000,    0.000000,    1.000000]], dtype=np.float64)
+_DEFAULT_K2 = np.array([[1351.9176425849425, 0.0,                1049.8154931878398],
+                         [   0.0,            1349.8914218044931,  539.0721823602935],
+                         [   0.0,               0.0,                1.0            ]], dtype=np.float64)
 
-_DEFAULT_D1 = np.array([-0.037295,  0.074764, -0.009469,  0.003614, 0.0], dtype=np.float64)
-_DEFAULT_D2 = np.array([-0.034440,  0.184112, -0.006644,  0.010357, 0.0], dtype=np.float64)
+_DEFAULT_D1 = np.array([-0.02274402282338767,  0.081934076877251946, -0.0071887339138836806,
+                          0.0043763375152072346, -0.030801832698880989], dtype=np.float64)
+_DEFAULT_D2 = np.array([-0.00032074923748045745,  0.086133513136658554, -0.0034036936374620646,
+                          0.010804767877325474,   -0.11458384021854233], dtype=np.float64)
 
-_DEFAULT_R = np.array([[ 0.999918,  0.003107, -0.012429],
-                        [-0.003106,  0.999995,  0.000162],
-                        [ 0.012430, -0.000123,  0.999923]], dtype=np.float64)
+_DEFAULT_R = np.array([[ 0.9999361032042462,  0.0026727319508472271, -0.010983897879437153],
+                        [-0.0026642644411264756,  0.99999614236457202,  0.00078546226037539118],
+                        [ 0.010985954837643046, -0.0007561480633086141,  0.99993936668000605]], dtype=np.float64)
 
-_DEFAULT_T = np.array([[-4.527460],
-                        [-0.047894],
-                        [-0.242786]], dtype=np.float64)
+_DEFAULT_T = np.array([[-0.004468698370539214],
+                        [-0.0001984338841315943],
+                        [-0.00043762260979519782]], dtype=np.float64)
 
 
 def load_calibration(path=None):
@@ -258,7 +260,7 @@ def fit_circle_3d(pts, ransac_iters=300, ransac_thresh=0.5, rng=None):
         return C3, r, n, e1, e2
 
     def _residuals(model, all_pts):
-        C3, r, n, e1, e2 = model
+        C3, r, n, _e1, _e2 = model
         d_plane  = (all_pts - C3) @ n
         proj     = all_pts - np.outer(d_plane, n)
         d_inplane = np.linalg.norm(proj - C3, axis=1) - r
@@ -340,8 +342,9 @@ def arc_midpoint_3d(pts3d, circle):
     }
 
 
-def arc_midpoint_from_matches(pts3d):
-    """Find midpoint by sorting 3D match points along the arc via greedy nearest-neighbour chain."""
+def arc_midpoint_from_matches(pts3d, trim_frac=0.05):
+    """Find midpoint by greedy nearest-neighbour chain, trimming noisy ends,
+    then locating the geometric arc-length midpoint."""
     pts = np.asarray(pts3d, dtype=np.float64)
     n = len(pts)
     if n == 0:
@@ -363,13 +366,24 @@ def arc_midpoint_from_matches(pts3d):
         visited[nxt] = True
 
     sorted_pts = pts[order]
-    mid_3d = sorted_pts[n // 2]
+
+    # Trim noisy skeleton ends before computing midpoint
+    trim = max(1, int(n * trim_frac))
+    trimmed = sorted_pts[trim:-trim] if len(sorted_pts) > 2 * trim + 1 else sorted_pts
+
+    # Arc-length midpoint: find the point at 50% cumulative arc length
+    seg_lens = np.linalg.norm(np.diff(trimmed, axis=0), axis=1)
+    cum_len = np.concatenate([[0.0], np.cumsum(seg_lens)])
+    half = cum_len[-1] / 2.0
+    mid_idx = int(np.searchsorted(cum_len, half, side='left'))
+    mid_idx = np.clip(mid_idx, 0, len(trimmed) - 1)
+    mid_3d = trimmed[mid_idx]
 
     return {
         'midpoint_3d':  mid_3d,
-        'endpoint1_3d': sorted_pts[0],
-        'endpoint2_3d': sorted_pts[-1],
-        'n_pts':        n,
+        'endpoint1_3d': trimmed[0],
+        'endpoint2_3d': trimmed[-1],
+        'n_pts':        len(trimmed),
     }
 
 # ---------------------------------------------------------------------------
@@ -385,8 +399,29 @@ def project(P, X3):
 # Visualisation helpers
 # ---------------------------------------------------------------------------
 
+def save_segmentation_plot(img_L, img_R, mask_L, mask_R, out_path):
+    """Overlay segmentation masks on the original images for visual verification."""
+    _, axes = plt.subplots(1, 2, figsize=(14, 6))
+    for ax, img, mask, title in zip(axes,
+                                     [img_L, img_R],
+                                     [mask_L, mask_R],
+                                     ['Left segmentation', 'Right segmentation']):
+        overlay = img.copy().astype(np.float32)
+        green = np.zeros_like(overlay)
+        green[..., 1] = 255
+        alpha = 0.4
+        overlay[mask > 0] = (1 - alpha) * overlay[mask > 0] + alpha * green[mask > 0]
+        ax.imshow(overlay.astype(np.uint8))
+        ax.set_title(title)
+        ax.axis('off')
+    plt.tight_layout()
+    plt.savefig(out_path, dpi=150)
+    plt.close()
+    print(f'saved segmentation plot -> {out_path}')
+
+
 def save_skeleton_plot(img_L, img_R, skel_L, skel_R, out_path):
-    fig, axes = plt.subplots(1, 2, figsize=(14, 6))
+    _, axes = plt.subplots(1, 2, figsize=(14, 6))
     for ax, img, skel, title in zip(axes,
                                      [img_L, img_R],
                                      [skel_L, skel_R],
@@ -404,7 +439,7 @@ def save_skeleton_plot(img_L, img_R, skel_L, skel_R, out_path):
 
 
 def save_epipolar_plot(img_L, img_R, matches_L, matches_R, F, img_w, out_path):
-    fig, axes = plt.subplots(1, 2, figsize=(14, 6))
+    _, axes = plt.subplots(1, 2, figsize=(14, 6))
     axes[0].imshow(img_L); axes[0].set_title('Left'); axes[0].axis('off')
     axes[1].imshow(img_R); axes[1].set_title('Right + epipolar lines'); axes[1].axis('off')
 
@@ -429,49 +464,91 @@ def save_epipolar_plot(img_L, img_R, matches_L, matches_R, F, img_w, out_path):
 
 
 def save_reprojection_plot(img_L, img_R, skel_L_ud, skel_R_ud,
-                           uL_mid, vL_mid, uR_mid, vR_mid, out_path):
-    fig, axes = plt.subplots(1, 2, figsize=(14, 6))
-    axes[0].imshow(img_L); axes[0].set_title('Left: reprojected midpoint')
-    axes[1].imshow(img_R); axes[1].set_title('Right: reprojected midpoint')
+                           uL_mid, vL_mid, uR_mid, vR_mid,
+                           pts3d, P1, P2, out_path):
+    _, axes = plt.subplots(1, 2, figsize=(14, 6))
+    axes[0].imshow(img_L); axes[0].set_title('Left: reprojected 3D points + midpoint')
+    axes[1].imshow(img_R); axes[1].set_title('Right: reprojected 3D points + midpoint')
     for ax in axes:
         ax.axis('off')
+
+    # original skeleton (undistorted) for reference
     if len(skel_L_ud):
-        axes[0].scatter(skel_L_ud[:, 0], skel_L_ud[:, 1], s=1, c='cyan', alpha=0.5)
+        axes[0].scatter(skel_L_ud[:, 0], skel_L_ud[:, 1], s=1, c='cyan', alpha=0.4,
+                        label='skeleton')
     if len(skel_R_ud):
-        axes[1].scatter(skel_R_ud[:, 0], skel_R_ud[:, 1], s=1, c='cyan', alpha=0.5)
-    axes[0].scatter([uL_mid], [vL_mid], s=200, marker='+', c='red', linewidths=3)
-    axes[1].scatter([uR_mid], [vR_mid], s=200, marker='+', c='red', linewidths=3)
+        axes[1].scatter(skel_R_ud[:, 0], skel_R_ud[:, 1], s=1, c='cyan', alpha=0.4,
+                        label='skeleton')
+
+    # reproject all triangulated 3D points back onto each image
+    if len(pts3d) > 0:
+        Xh = np.hstack([pts3d, np.ones((len(pts3d), 1))]).T  # (4, N)
+        for ax, P in [(axes[0], P1), (axes[1], P2)]:
+            proj = P @ Xh           # (3, N)
+            u = proj[0] / proj[2]
+            v = proj[1] / proj[2]
+            ax.scatter(u, v, s=4, c='lime', alpha=0.7, label='reprojected 3D pts')
+
+    # midpoint
+    axes[0].scatter([uL_mid], [vL_mid], s=200, marker='+', c='red', linewidths=3,
+                    label='midpoint')
+    axes[1].scatter([uR_mid], [vR_mid], s=200, marker='+', c='red', linewidths=3,
+                    label='midpoint')
+    for ax in axes:
+        ax.legend(fontsize=7, loc='upper right')
+
     plt.tight_layout()
     plt.savefig(out_path, dpi=150)
     plt.close()
     print(f'saved reprojection plot -> {out_path}')
 
 
-def save_3d_plot(pts3d, circle, arc, out_path):
+# def save_3d_plot(pts3d, circle, arc, out_path):
+#     fig = plt.figure(figsize=(10, 8))
+#     ax = fig.add_subplot(111, projection='3d')
+#
+#     inl  = circle['inliers']
+#     outl = ~inl
+#     ax.scatter(pts3d[inl, 0],  pts3d[inl, 1],  pts3d[inl, 2],
+#                c='royalblue', s=8, label=f'inliers (n={int(inl.sum())})')
+#     if outl.any():
+#         ax.scatter(pts3d[outl, 0], pts3d[outl, 1], pts3d[outl, 2],
+#                    c='lightgray', s=8, label=f'outliers (n={int(outl.sum())})')
+#
+#     C, r, e1, e2 = circle['center'], circle['radius'], circle['e1'], circle['e2']
+#     thetas = np.linspace(0, 2 * np.pi, 200)
+#     circ_pts = C[None, :] + r * (np.outer(np.cos(thetas), e1) +
+#                                   np.outer(np.sin(thetas), e2))
+#     ax.plot(circ_pts[:, 0], circ_pts[:, 1], circ_pts[:, 2],
+#             c='orange', linewidth=1, alpha=0.7,
+#             label=f'fitted circle (r={r:.2f} mm)')
+#
+#     M = arc['midpoint_3d']
+#     ax.scatter([M[0]], [M[1]], [M[2]], c='red', s=120, marker='*',
+#                label=f'3D midpoint  Z={M[2]:.2f} mm')
+#
+#     ax.set_xlabel('X (mm)'); ax.set_ylabel('Y (mm)'); ax.set_zlabel('Z (mm)')
+#     ax.set_title('3D needle reconstruction (left camera frame)')
+#     ax.legend()
+#     plt.tight_layout()
+#     plt.savefig(out_path, dpi=150)
+#     plt.close()
+#     print(f'saved 3D plot -> {out_path}')
+
+
+def save_3d_plot(pts3d, arc, out_path):
+    """3D scatter of triangulated needle points + chain midpoint."""
     fig = plt.figure(figsize=(10, 8))
     ax = fig.add_subplot(111, projection='3d')
 
-    inl  = circle['inliers']
-    outl = ~inl
-    ax.scatter(pts3d[inl, 0],  pts3d[inl, 1],  pts3d[inl, 2],
-               c='royalblue', s=8, label=f'inliers (n={int(inl.sum())})')
-    if outl.any():
-        ax.scatter(pts3d[outl, 0], pts3d[outl, 1], pts3d[outl, 2],
-                   c='lightgray', s=8, label=f'outliers (n={int(outl.sum())})')
-
-    C, r, e1, e2 = circle['center'], circle['radius'], circle['e1'], circle['e2']
-    thetas = np.linspace(0, 2 * np.pi, 200)
-    circ_pts = C[None, :] + r * (np.outer(np.cos(thetas), e1) +
-                                  np.outer(np.sin(thetas), e2))
-    ax.plot(circ_pts[:, 0], circ_pts[:, 1], circ_pts[:, 2],
-            c='orange', linewidth=1, alpha=0.7,
-            label=f'fitted circle (r={r:.2f} mm)')
+    ax.scatter(pts3d[:, 0], pts3d[:, 1], pts3d[:, 2],
+               c='royalblue', s=8, alpha=0.6, label=f'triangulated pts (n={len(pts3d)})')
 
     M = arc['midpoint_3d']
-    ax.scatter([M[0]], [M[1]], [M[2]], c='red', s=120, marker='*',
-               label=f'3D midpoint  Z={M[2]:.2f} mm')
+    ax.scatter([M[0]], [M[1]], [M[2]], c='red', s=200, marker='*',
+               label=f'3D midpoint  Z={M[2]:.4f} m')
 
-    ax.set_xlabel('X (mm)'); ax.set_ylabel('Y (mm)'); ax.set_zlabel('Z (mm)')
+    ax.set_xlabel('X (m)'); ax.set_ylabel('Y (m)'); ax.set_zlabel('Z (m)')
     ax.set_title('3D needle reconstruction (left camera frame)')
     ax.legend()
     plt.tight_layout()
@@ -491,12 +568,12 @@ def main():
     output_dir.mkdir(parents=True, exist_ok=True)
 
     # --- Calibration ---
-    K1, K2, D1, D2, R, T, IMG_W, IMG_H = load_calibration(args.calib)
+    K1, K2, D1, D2, R, T, IMG_W, _ = load_calibration(args.calib)
     print('Calibration loaded.')
     print('K1 =\n', K1)
     print('K2 =\n', K2)
     print('R  =\n', R)
-    print('T  =\n', T.ravel(), '  (units: mm)')
+    print('T  =\n', T.ravel(), '  (units: m)')
 
     # --- Load detection models (once) ---
     sys.path.insert(0, str(Path(__file__).parent))
@@ -533,6 +610,10 @@ def main():
     img_L = cv2.cvtColor(cv2.imread(args.left),  cv2.COLOR_BGR2RGB)
     img_R = cv2.cvtColor(cv2.imread(args.right), cv2.COLOR_BGR2RGB)
 
+    if not args.no_vis:
+        save_segmentation_plot(img_L, img_R, mask_L, mask_R,
+                               output_dir / 'segmentation.png')
+
     # --- Skeleton extraction ---
     print('\n[2/7] Extracting skeletons ...')
     skel_L, *_ = extract_skeleton(mask_L)
@@ -564,68 +645,57 @@ def main():
     print('\n[5/7] Triangulating ...')
     P1, P2 = projection_matrices(K1, K2, R, T)
     pts3d  = triangulate(P1, P2, matches_L, matches_R)
-    valid  = (pts3d[:, 2] > 0) & (pts3d[:, 2] < 1000.0)
+    valid  = (pts3d[:, 2] > 0) & (pts3d[:, 2] < 1.0)
     pts3d  = pts3d[valid]
     print(f'  {len(pts3d)} valid 3D points')
-    print(f'  Z range: {pts3d[:, 2].min():.2f} .. {pts3d[:, 2].max():.2f} mm')
+    print(f'  Z range: {pts3d[:, 2].min():.4f} .. {pts3d[:, 2].max():.4f} m')
     print(f'  centroid: {pts3d.mean(axis=0)}')
 
-    # --- 3D circle fit ---
-    print('\n[6/7] Fitting 3D circle (RANSAC) ...')
-    circle = fit_circle_3d(pts3d,
-                           ransac_iters=args.ransac_iters,
-                           ransac_thresh=args.ransac_thresh)
-    assert circle is not None, '3D circle fit failed — not enough valid 3D points'
 
-    print(f"  center  : {circle['center']}  mm")
-    print(f"  radius  : {circle['radius']:.3f} mm")
-    print(f"  normal  : {circle['normal']}")
-    print(f"  inliers : {circle['n_in']} / {circle['n_total']}")
-    print(f"  RMS res : {circle['rms_mm']:.3f} mm")
+    # --- 3D circle fit (disabled: most points are outliers, direct chain midpoint is used instead) ---
+    # print('\n[6/7] Fitting 3D circle (RANSAC) ...')
+    # circle = fit_circle_3d(pts3d,
+    #                        ransac_iters=args.ransac_iters,
+    #                        ransac_thresh=args.ransac_thresh)
+    # assert circle is not None, '3D circle fit failed — not enough valid 3D points'
+    # print(f"  center  : {circle['center']}  mm")
+    # print(f"  radius  : {circle['radius']:.3f} mm")
+    # print(f"  normal  : {circle['normal']}")
+    # print(f"  inliers : {circle['n_in']} / {circle['n_total']}")
+    # print(f"  RMS res : {circle['rms_mm']:.3f} mm")
+    # if circle['rms_mm'] > 1.0:
+    #     print('  WARNING: RMS residual > 1 mm — check calibration or matches')
+    # if circle['n_in'] / circle['n_total'] < 0.5:
+    #     print('  WARNING: inlier ratio < 50% — check skeleton/matching')
 
-    if circle['rms_mm'] > 1.0:
-        print('  WARNING: RMS residual > 1 mm — check calibration or matches')
-    if circle['n_in'] / circle['n_total'] < 0.5:
-        print('  WARNING: inlier ratio < 50% — check skeleton/matching')
-
-    # --- Arc midpoint ---
-    print('\n[7/7] Computing 3D arc midpoint ...')
-    arc = arc_midpoint_3d(pts3d, circle)
+    # --- Arc midpoint via nearest-neighbour chain (no circle fit) ---
+    print('\n[6/7] Computing 3D arc midpoint (nearest-neighbour chain) ...')
     arc_match = arc_midpoint_from_matches(pts3d)
 
     print('\n=== RESULT ===')
-    print(f"3D MIDPOINT (circle fit): {arc['midpoint_3d']}  mm")
-    print(f"  depth Z        : {arc['midpoint_3d'][2]:.3f} mm")
-    print(f"  arc sweep      : {arc['arc_sweep_deg']:.1f} deg")
-    print(f"  needle radius  : {circle['radius']:.3f} mm")
-    print(f"  plane normal   : {arc['plane_normal']}")
-    print(f"  endpoint 1     : {arc['endpoint1_3d']}")
-    print(f"  endpoint 2     : {arc['endpoint2_3d']}")
-    print(f"3D MIDPOINT (match median): {arc_match['midpoint_3d']}  mm")
-    print(f"  depth Z        : {arc_match['midpoint_3d'][2]:.3f} mm")
-    print(f"  n_pts          : {arc_match['n_pts']}")
-    print(f"  endpoint 1     : {arc_match['endpoint1_3d']}")
-    print(f"  endpoint 2     : {arc_match['endpoint2_3d']}")
+    print(f"3D MIDPOINT: {arc_match['midpoint_3d']}  m")
+    print(f"  depth Z    : {arc_match['midpoint_3d'][2]:.4f} m")
+    print(f"  n_pts      : {arc_match['n_pts']}")
+    print(f"  endpoint 1 : {arc_match['endpoint1_3d']}")
+    print(f"  endpoint 2 : {arc_match['endpoint2_3d']}")
 
     # --- Visualisation ---
     if not args.no_vis:
-        uL_mid, vL_mid = project(P1, arc['midpoint_3d'])
-        uR_mid, vR_mid = project(P2, arc['midpoint_3d'])
+        uL_mid, vL_mid = project(P1, arc_match['midpoint_3d'])
+        uR_mid, vR_mid = project(P2, arc_match['midpoint_3d'])
         save_reprojection_plot(img_L, img_R, skel_L_ud, skel_R_ud,
                                uL_mid, vL_mid, uR_mid, vR_mid,
+                               pts3d, P1, P2,
                                output_dir / 'reprojection.png')
-        save_3d_plot(pts3d, circle, arc,
+        save_3d_plot(pts3d, arc_match,
                      output_dir / '3d_reconstruction.png')
 
     # --- Save result ---
     out = {
-        'midpoint_mm':   arc['midpoint_3d'],
-        'plane_normal':  arc['plane_normal'],
-        'radius_mm':     circle['radius'],
-        'arc_sweep_deg': arc['arc_sweep_deg'],
-        'rms_mm':        circle['rms_mm'],
-        'n_inliers':     circle['n_in'],
-        'n_total':       circle['n_total'],
+        'midpoint_m':   arc_match['midpoint_3d'],
+        'endpoint1_m':  arc_match['endpoint1_3d'],
+        'endpoint2_m':  arc_match['endpoint2_3d'],
+        'n_pts':        arc_match['n_pts'],
     }
     npz_path = output_dir / 'needle_3d.npz'
     np.savez(npz_path, **out)

@@ -16,10 +16,10 @@ GPU="${GPU:-0}"
 export CUDA_VISIBLE_DEVICES="${GPU}"
 
 # ── Default paths (edit to match your setup) ─────────────────────────────────
-LEFT_IMG="${LEFT_IMG:-/home/songyu/Datasets/Autosurg/cuhk/Cali_Data_Needle_Image/needle_image/left/img_0001.jpg}"
-RIGHT_IMG="${RIGHT_IMG:-/home/songyu/Datasets/Autosurg/cuhk/Cali_Data_Needle_Image/needle_image/right/img_0001.jpg}"
+LEFT_IMG="${LEFT_IMG:-/home/songyu/Datasets/Autosurg/cuhk/Cali_Data_Needle_Image/needle_image/left/img_0001.jpg}"  # Note: left/right may be swapped in the dataset
+RIGHT_IMG="${RIGHT_IMG:-/home/songyu/Datasets/Autosurg/cuhk/Cali_Data_Needle_Image/needle_image/right/img_0001.jpg}" # Note: left/right may be swapped in the dataset
 YOLO_WEIGHTS="${YOLO_WEIGHTS:-/home/songyu/Project/yolo/YOLOv8_needle/runs/detect/runs/needle_finetune/cuhk_v1/weights/best.pt}"
-OUTPUT_DIR="${OUTPUT_DIR:-${PROJECT_DIR}/outputs_3d}"
+OUTPUT_DIR="${OUTPUT_DIR:-${PROJECT_DIR}/outputs_3d/left_right_in_order}"
 
 # Optional: point to a stereo_calib.npz to override the built-in calibration.
 # CALIB_NPZ="${SCRIPT_DIR}/stereo_calib.npz"
