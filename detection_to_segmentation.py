@@ -24,10 +24,10 @@ from PIL import Image
 
 
 # ─────────────────────────── Config ───────────────────────────
-YOLO_WEIGHTS = "runs/needle/exp1/weights/best.pt"  # path to trained YOLOv8 weights
+YOLO_WEIGHTS = "./models/yolo_weights/best.pt"  # path to trained YOLOv8 weights
 YOLO_CONF    = 0.25        # YOLO detection confidence threshold
 BOX_EXPAND   = 1.1         # box expansion ratio (1.4 = expand by 40%)
-SAM3_TEXT    = "suturing needle"  # text prompt passed to SAM3 (improves stability)
+SAM3_TEXT    = "thin curved silver metal needle"  # text prompt passed to SAM3 (improves stability)
 FIT_ARC      = True        # fit a circular arc to the mask to recover the needle midpoint
 DEVICE       = "cuda" if torch.cuda.is_available() else "cpu"
 
