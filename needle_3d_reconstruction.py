@@ -541,14 +541,15 @@ def save_3d_plot(pts3d, arc, out_path):
     fig = plt.figure(figsize=(10, 8))
     ax = fig.add_subplot(111, projection='3d')
 
-    ax.scatter(pts3d[:, 0], pts3d[:, 1], pts3d[:, 2],
+    pts_mm = pts3d * 1000
+    ax.scatter(pts_mm[:, 0], pts_mm[:, 1], pts_mm[:, 2],
                c='royalblue', s=8, alpha=0.6, label=f'triangulated pts (n={len(pts3d)})')
 
-    M = arc['midpoint_3d']
+    M = arc['midpoint_3d'] * 1000
     ax.scatter([M[0]], [M[1]], [M[2]], c='red', s=200, marker='*',
-               label=f'3D midpoint  Z={M[2]:.4f} m')
+               label=f'3D midpoint  Z={M[2]:.2f} mm')
 
-    ax.set_xlabel('X (m)'); ax.set_ylabel('Y (m)'); ax.set_zlabel('Z (m)')
+    ax.set_xlabel('X (mm)'); ax.set_ylabel('Y (mm)'); ax.set_zlabel('Z (mm)')
     ax.set_title('3D needle reconstruction (left camera frame)')
     ax.legend()
     plt.tight_layout()
