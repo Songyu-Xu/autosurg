@@ -513,9 +513,9 @@ def run_pipeline(image_path: str,
 
     # Step 4: visualize and save result
     print("\n[Step 4] Saving result...")
-    visualize_and_save(image_path, boxes_xyxy, masks, scores,
-                       arc_infos=arc_infos,
-                       output_path=resolved_output)
+    vis = visualize_and_save(image_path, boxes_xyxy, masks, scores,
+                             arc_infos=arc_infos,
+                             output_path=resolved_output)
 
     # Return everything for downstream use (e.g. robot grasping planner)
     return {
@@ -523,6 +523,7 @@ def run_pipeline(image_path: str,
         "masks":      masks,       # list of [H, W] bool arrays
         "scores":     scores,
         "arc_infos":  arc_infos,   # list of dicts (or None entries) or None
+        "result_img": vis,         # rendered BGR image with boxes/masks drawn
     }
 
 

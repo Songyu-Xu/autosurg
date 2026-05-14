@@ -420,6 +420,21 @@ def save_segmentation_plot(img_L, img_R, mask_L, mask_R, out_path):
     print(f'saved segmentation plot -> {out_path}')
 
 
+def save_detection_plot(result_img_L, result_img_R, out_path):
+    """Show YOLO detection results for left and right images side-by-side."""
+    _, axes = plt.subplots(1, 2, figsize=(14, 6))
+    for ax, img, title in zip(axes,
+                               [result_img_L, result_img_R],
+                               ['Left detection', 'Right detection']):
+        ax.imshow(cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
+        ax.set_title(title)
+        ax.axis('off')
+    plt.tight_layout()
+    plt.savefig(out_path, dpi=150)
+    plt.close()
+    print(f'saved detection plot -> {out_path}')
+
+
 def save_skeleton_plot(img_L, img_R, skel_L, skel_R, out_path):
     _, axes = plt.subplots(1, 2, figsize=(14, 6))
     for ax, img, skel, title in zip(axes,
@@ -612,6 +627,8 @@ def main():
     img_R = cv2.cvtColor(cv2.imread(args.right), cv2.COLOR_BGR2RGB)
 
     if not args.no_vis:
+        save_detection_plot(left_result['result_img'], right_result['result_img'],
+                            output_dir / 'detection.png')
         save_segmentation_plot(img_L, img_R, mask_L, mask_R,
                                output_dir / 'segmentation.png')
 
