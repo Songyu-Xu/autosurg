@@ -146,7 +146,8 @@ def order_skeleton(skel):
 
 
 def extract_skeleton(mask):
-    cleaned = keep_large_components(mask, min_ratio=0.15)
+    kernel  = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
+    cleaned = cv2.erode(mask.astype(np.uint8), kernel, iterations=1).astype(bool)
 
     # Crop to tight bounding box of the foreground before skeletonizing,
     # then offset the resulting pixel coordinates back to original image space.
@@ -594,6 +595,8 @@ def save_3d_plot(pts3d, arc, out_path):
     plt.close()
     print(f'saved 3D plot -> {out_path}')
 
+
+
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
@@ -654,27 +657,28 @@ def main():
         save_segmentation_plot(img_L, img_R, mask_L, mask_R,
                                output_dir / 'segmentation.png')
 
-    # --- Skeleton extraction ---
-    print('\n[2/7] Extracting skeletons ...')
+    # --- Skeleton extraction (left only) ---
+    print('\n[2/7] Extracting left skeleton; collecting right mask pixels ...')
     skel_L, *_ = extract_skeleton(mask_L)
-    skel_R, *_ = extract_skeleton(mask_R)
-    print(f'  left  skeleton: {len(skel_L):4d} ordered pixels')
-    print(f'  right skeleton: {len(skel_R):4d} ordered pixels')
+    ys_R, xs_R = np.where(mask_R)
+    mask_R_pts = np.column_stack([xs_R, ys_R]).astype(np.float32)
+    print(f'  left  skeleton:   {len(skel_L):4d} ordered pixels')
+    print(f'  right mask pixels:{len(mask_R_pts):4d}')
 
     if not args.no_vis:
-        save_skeleton_plot(img_L, img_R, skel_L, skel_R,
+        save_skeleton_plot(img_L, img_R, skel_L, mask_R_pts,
                            output_dir / 'skeleton.png')
 
     # --- Undistort ---
-    print('\n[3/7] Undistorting skeleton points ...')
-    skel_L_ud = undistort_pixels(skel_L, K1, D1)
-    skel_R_ud = undistort_pixels(skel_R, K2, D2)
+    print('\n[3/7] Undistorting points ...')
+    skel_L_ud    = undistort_pixels(skel_L,    K1, D1)
+    mask_R_pts_ud = undistort_pixels(mask_R_pts, K2, D2)
 
     # --- Epipolar matching ---
     print('\n[4/7] Epipolar matching ...')
     F = fundamental_from_KRT(K1, K2, R, T)
     matches_L, matches_R = epipolar_match(
-        skel_L_ud, skel_R_ud, F, max_dist_px=args.epipolar_thresh)
+        skel_L_ud, mask_R_pts_ud, F, max_dist_px=args.epipolar_thresh)
     print(f'  kept {len(matches_L)} / {len(skel_L_ud)} left points')
 
     if not args.no_vis:
@@ -723,13 +727,12 @@ def main():
     if not args.no_vis:
         uL_mid, vL_mid = project(P1, arc_match['midpoint_3d'])
         uR_mid, vR_mid = project(P2, arc_match['midpoint_3d'])
-        save_reprojection_plot(img_L, img_R, skel_L_ud, skel_R_ud,
+        save_reprojection_plot(img_L, img_R, skel_L_ud, mask_R_pts_ud,
                                uL_mid, vL_mid, uR_mid, vR_mid,
                                pts3d, P1, P2,
                                output_dir / 'reprojection.png')
         save_3d_plot(pts3d, arc_match,
                      output_dir / '3d_reconstruction.png')
-
     # --- Save result ---
     out = {
         'midpoint_m':   arc_match['midpoint_3d'],

@@ -18,10 +18,10 @@ export CUDA_VISIBLE_DEVICES="${GPU}"
 # ── Default paths (edit to match your setup) ─────────────────────────────────
 
 # test_black_background
-LEFT_IMG="${LEFT_IMG:-/home/songyu/Datasets/Autosurg/cuhk/May13_test/Test_image/test_black_background/left/img_0001.jpg}"
-RIGHT_IMG="${RIGHT_IMG:-/home/songyu/Datasets/Autosurg/cuhk/May13_test/Test_image/test_black_background/right/img_0001.jpg}"
-YOLO_WEIGHTS="${YOLO_WEIGHTS:-/home/songyu/Project/yolo/YOLOv8_needle/runs/detect/runs/needle_finetune/cuhk_v1/weights/best.pt}"
-OUTPUT_DIR="${OUTPUT_DIR:-${PROJECT_DIR}/outputs_3d/May13/test_black_backgound/cropped/img_0001}"
+# LEFT_IMG="${LEFT_IMG:-/home/songyu/Datasets/Autosurg/cuhk/May13_test/Test_image/test_black_background/left/img_0001.jpg}"
+# RIGHT_IMG="${RIGHT_IMG:-/home/songyu/Datasets/Autosurg/cuhk/May13_test/Test_image/test_black_background/right/img_0001.jpg}"
+# YOLO_WEIGHTS="${YOLO_WEIGHTS:-/home/songyu/Project/yolo/YOLOv8_needle/runs/detect/runs/needle_finetune/cuhk_v1/weights/best.pt}"
+# OUTPUT_DIR="${OUTPUT_DIR:-${PROJECT_DIR}/outputs_3d/May13/test_black_backgound/cropped_left_skeleton_only/img_0001}"
 
 # test_peg_paddle
 # LEFT_IMG="${LEFT_IMG:-/home/songyu/Datasets/Autosurg/cuhk/May13_test/Test_image/test_peg_paddle/left/img_0001.jpg}"
@@ -34,6 +34,12 @@ OUTPUT_DIR="${OUTPUT_DIR:-${PROJECT_DIR}/outputs_3d/May13/test_black_backgound/c
 # RIGHT_IMG="${RIGHT_IMG:-/home/songyu/Datasets/Autosurg/cuhk/May13_test/Test_image/test_peg_paddle_2/right/img_0001.jpg}"
 # YOLO_WEIGHTS="${YOLO_WEIGHTS:-/home/songyu/Project/yolo/YOLOv8_needle/runs/detect/runs/needle_finetune/cuhk_v1/weights/best.pt}"
 # OUTPUT_DIR="${OUTPUT_DIR:-${PROJECT_DIR}/outputs_3d/May13/test_peg_paddle_2/img_0001/}"
+
+# test_peg_paddle_3
+LEFT_IMG="${LEFT_IMG:-/home/songyu/Datasets/Autosurg/cuhk/May13_test/Test_image/test_peg_paddle_3/left/img_0001.jpg}"
+RIGHT_IMG="${RIGHT_IMG:-/home/songyu/Datasets/Autosurg/cuhk/May13_test/Test_image/test_peg_paddle_3/right/img_0001.jpg}"
+YOLO_WEIGHTS="${YOLO_WEIGHTS:-/home/songyu/Project/yolo/YOLOv8_needle/runs/detect/runs/needle_finetune/cuhk_v1/weights/best.pt}"
+OUTPUT_DIR="${OUTPUT_DIR:-${PROJECT_DIR}/outputs_3d/May13/test_peg_paddle_3/img_0001/}"
 
 # Optional: point to a stereo_calib.npz to override the built-in calibration.
 # CALIB_NPZ="${SCRIPT_DIR}/stereo_calib.npz"
