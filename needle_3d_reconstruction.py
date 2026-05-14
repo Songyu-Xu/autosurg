@@ -147,8 +147,30 @@ def order_skeleton(skel):
 
 def extract_skeleton(mask):
     cleaned = keep_large_components(mask, min_ratio=0.15)
-    skel = skeletonize(cleaned)
-    ordered = order_skeleton(skel)
+
+    # Crop to tight bounding box of the foreground before skeletonizing,
+    # then offset the resulting pixel coordinates back to original image space.
+    rows = np.any(cleaned, axis=1)
+    cols = np.any(cleaned, axis=0)
+    if not rows.any():
+        return np.empty((0, 2), dtype=np.float32), cleaned, np.zeros_like(cleaned)
+    r0, r1 = np.where(rows)[0][[0, -1]]
+    c0, c1 = np.where(cols)[0][[0, -1]]
+    cropped = cleaned[r0:r1+1, c0:c1+1]
+
+    skel_crop = skeletonize(cropped)
+    ordered_crop = order_skeleton(skel_crop)
+
+    # Translate crop-relative (x, y) back to full-image coordinates
+    if len(ordered_crop):
+        ordered = ordered_crop + np.array([c0, r0], dtype=np.float32)
+    else:
+        ordered = ordered_crop
+
+    # Reconstruct full-size skeleton image for callers that use it directly
+    skel = np.zeros_like(cleaned)
+    skel[r0:r1+1, c0:c1+1] = skel_crop
+
     return ordered, cleaned, skel
 
 # ---------------------------------------------------------------------------

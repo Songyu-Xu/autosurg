@@ -121,6 +121,19 @@ def load_sam3():
     return model, processor
 
 
+def _square_crop_region(box_xyxy: np.ndarray, img_w: int, img_h: int):
+    """Compute a square crop region enclosing the bounding box, clamped to image bounds."""
+    x1, y1, x2, y2 = box_xyxy
+    cx = (x1 + x2) / 2
+    cy = (y1 + y2) / 2
+    half = max(x2 - x1, y2 - y1) / 2
+    crop_x1 = int(max(0,     cx - half))
+    crop_y1 = int(max(0,     cy - half))
+    crop_x2 = int(min(img_w, cx + half))
+    crop_y2 = int(min(img_h, cy + half))
+    return crop_x1, crop_y1, crop_x2, crop_y2
+
+
 def sam3_segment(image_path: str,
                  boxes_xyxy: np.ndarray,
                  img_w: int,
@@ -155,38 +168,43 @@ def sam3_segment(image_path: str,
         for i, box_xyxy in enumerate(boxes_xyxy):
             print(f"[SAM3] Processing target {i+1}/{len(boxes_xyxy)}...")
 
-            # Each box gets its own independent inference state
-            state = processor.set_image(image)
+            # Compute square crop around detection box
+            crop_x1, crop_y1, crop_x2, crop_y2 = _square_crop_region(box_xyxy, img_w, img_h)
+            crop_w = crop_x2 - crop_x1
+            crop_h = crop_y2 - crop_y1
 
-            # ── Option A: joint text + box prompt (recommended, most stable) ──
-            # Pass text prompt first for coarse localization
+            # Crop the PIL image to the square region
+            cropped_image = image.crop((crop_x1, crop_y1, crop_x2, crop_y2))
+
+            # Shift box coords to crop-relative space, clamp to crop bounds
+            bx1, by1, bx2, by2 = box_xyxy
+            rel_x1 = max(0.0,           bx1 - crop_x1)
+            rel_y1 = max(0.0,           by1 - crop_y1)
+            rel_x2 = min(float(crop_w), bx2 - crop_x1)
+            rel_y2 = min(float(crop_h), by2 - crop_y1)
+
+            # Normalize box relative to crop dimensions
+            box_norm = xyxy_to_xywh_norm(
+                np.array([rel_x1, rel_y1, rel_x2, rel_y2]), crop_w, crop_h)
+
+            # Run SAM3 on the cropped image
+            state  = processor.set_image(cropped_image)
             output = processor.set_text_prompt(state=state, prompt=text_prompt)
+            output = processor.add_geometric_prompt(box=box_norm, label=1, state=state)
 
-            # Then refine with box prompt
-            box_norm = xyxy_to_xywh_norm(box_xyxy, img_w, img_h)
-            # label=1 means foreground
-            output = processor.add_geometric_prompt(
-                box=box_norm,
-                label=1,
-                state=state
-            )
-
-            # ── Option B: box-only prompt (try this if Option A gives poor results) ──
-            # state = processor.set_image(image)
-            # box_norm = xyxy_to_xywh_norm(box_xyxy, img_w, img_h)
-            # output = processor.add_geometric_prompt(box=box_norm, label=1, state=state)
-
-            # Cast to float32 before calling .numpy() because numpy does not support
-            # BFloat16 — tensors remain BFloat16 inside the autocast context.
-            masks  = output["masks"].cpu().float().numpy()   # [N, 1, H, W]
+            # Cast to float32 before calling .numpy() (tensors are BFloat16 inside autocast)
+            masks  = output["masks"].cpu().float().numpy()   # [N, 1, crop_h, crop_w]
             scores = output["scores"].cpu().float().numpy()  # [N]
 
-            # Select the mask with the highest confidence score
             best_idx   = scores.argmax()
-            best_mask  = masks[best_idx, 0].astype(bool)  # [H, W]
+            crop_mask  = masks[best_idx, 0].astype(bool)    # [crop_h, crop_w]
             best_score = float(scores[best_idx])
 
-            all_masks.append(best_mask)
+            # Embed crop mask back into a full-size mask
+            full_mask = np.zeros((img_h, img_w), dtype=bool)
+            full_mask[crop_y1:crop_y2, crop_x1:crop_x2] = crop_mask
+
+            all_masks.append(full_mask)
             all_scores.append(best_score)
             print(f"  -> mask score: {best_score:.3f}")
 
