@@ -1,183 +1,126 @@
-# Surgical Needle Detection & Segmentation Pipeline
+## 目的：
+从立体相机（左右两路图像）中，自动定位手术缝合针的三维抓取点（midpoint），用于机器人辅助手术中的自动抓针。
+流程（7步）：
+1. YOLO + SAM3：分别对左右图像做目标检测 + 实例分割，得到针的像素mask 
+2. 骨架提取：对mask做细化（skeletonize），得到有序的1D曲线点列 
+3. 去畸变：用相机标定参数消除镜头畸变 
+4. 对极匹配：基于极线约束，将左右骨架点配对 
+5. 三角化：将匹配点对三角化，重建3D点云 
+6. 3D圆弧拟合：用RANSAC拟合3D圆（针是圆弧形），得到圆心、半径、法向量 
+7. 圆弧中点：找圆弧的角度中点，作为最终的3D抓取目标点（输出坐标单位：mm） 
 
-An end-to-end automated pipeline for detecting and segmenting surgical needles in images, combining **YOLOv8** for object detection and **SAM3** for precise instance segmentation.
+## 输出目录：outputs_3d
+
+运行 `run_needle_3d.sh` 后，所有结果保存在 `outputs_3d/`（可通过 `--output-dir` 修改）：
+
+| 文件 | 说明 |
+|---|---|
+| `needle_3d.npz` | 主结果文件，包含 3D 抓取点坐标及圆弧拟合参数（见下表） |
+| `img_XXXX_result.jpg` | 左右图像上的 YOLO 检测框 + SAM3 分割 mask 叠加结果 |
+| `skeleton.png` | 左右图像骨架提取结果可视化 |
+| `epipolar.png` | 对极匹配结果可视化（左右骨架匹配点对及极线） |
+| `reprojection.png` | 三角化点反投影到图像平面的验证图 |
+| `3d_reconstruction.png` | 三维点云 + 拟合圆弧 + 抓取中点的 3D 可视化 |
+
+### needle_3d.npz 字段说明
+
+用 `numpy.load('needle_3d.npz')` 读取：
+
+| 字段 | 形状 | 含义 |
+|---|---|---|
+| `midpoint_mm` | `(3,)` | 3D 抓取目标点坐标，左相机坐标系，单位 mm |
+| `plane_normal` | `(3,)` | 针所在圆弧平面的法向量（单位向量） |
+| `radius_mm` | 标量 | 拟合圆弧半径，单位 mm |
+| `arc_sweep_deg` | 标量 | 圆弧跨度角度，单位 ° |
+| `rms_mm` | 标量 | RANSAC 圆弧拟合残差（RMS），单位 mm |
+| `n_inliers` | 标量 | RANSAC 内点数 |
+| `n_total` | 标量 | 三角化得到的总 3D 点数 |
 
 ---
 
-## How It Works
+## 环境配置
 
-The pipeline runs in three sequential steps:
-
-```
-Input Image → [Step 1] YOLOv8 Detection + Box Enlargement
-            → [Step 2] SAM3 Fine Segmentation
-            → [Step 3] Visualization & Save
-```
-
-**Step 1 — YOLOv8 Detection + Box Enlargement**
-A trained YOLOv8 model locates surgical needles in the image and returns bounding boxes. Each box is then expanded by 40% (configurable) around its center to provide sufficient context for the segmentation model.
-
-**Step 2 — SAM3 Segmentation**
-Each enlarged bounding box is passed to SAM3 (Segment Anything Model 3) along with a text prompt (`"suturing needle"`) for more stable results on small objects. SAM3 outputs a pixel-level mask for each detected needle, and the highest-confidence mask is selected.
-
-**Step 3 — Visualization & Save**
-The masks are overlaid on the original image as semi-transparent color fills, and the bounding boxes are drawn with confidence scores. The result is saved as a new image file.
-
----
-
-## Installation
-
-### 1. Create a Virtual Environment
-
-It is strongly recommended to install all dependencies inside a Python virtual environment to avoid conflicts with other projects.
+### 1. 创建虚拟环境
 
 ```bash
-# Navigate to your project directory
-cd autosurg
-
-# Create the virtual environment
 python -m venv .venv
-
-# Activate it — macOS / Linux
-source .venv/bin/activate
-
-# Activate it — Windows
-.venv\Scripts\activate
+source .venv/bin/activate        # Linux / macOS
+# .venv\Scripts\activate         # Windows
 ```
 
-Once activated, your terminal prompt will show a `(.venv)` prefix. All packages installed after this point are isolated to this environment.
-
-> To deactivate the environment at any time, simply run `deactivate`.
-
-### 2. Install Core Dependencies
+### 2. 安装依赖
 
 ```bash
-pip install ultralytics numpy opencv-python Pillow
+pip install -r requirements.txt
 ```
 
-### 3. Install PyTorch
+> **PyTorch GPU 版本**：`requirements.txt` 中的 `torch` / `torchvision` 为通用版本。若有 NVIDIA GPU，建议替换为对应 CUDA 版本，例如 CUDA 11.8：
+> ```bash
+> pip install torch torchvision --index-url https://download.pytorch.org/whl/cu118
+> ```
+> 可在 [pytorch.org](https://pytorch.org/get-started/locally/) 选择合适的版本。
 
-SAM3 is a large model and will run very slowly on CPU. Installing the GPU-enabled version of PyTorch is strongly recommended if you have an NVIDIA GPU.
-
-```bash
-# CPU only
-pip install torch torchvision
-
-# NVIDIA GPU — choose the build matching your CUDA version, e.g. CUDA 11.8:
-pip install torch torchvision --index-url https://download.pytorch.org/whl/cu118
-```
-
-If a CUDA-capable GPU is available, it will be used automatically. Otherwise the pipeline falls back to CPU.
-
-### 4. Install SAM3 (from Source)
-
-SAM3 must be installed from its GitHub repository. The `-e` flag installs it in editable mode, linking the source code directly into the virtual environment.
+### 3. 安装 SAM3
 
 ```bash
-# Clone into the project directory (or any preferred location)
-git clone https://github.com/facebookresearch/sam3
+git clone https://github.com/facebookresearch/sam3.git
 cd sam3
 pip install -e .
 cd ..
 ```
 
-### 5. HuggingFace Login
+详细说明参见官方仓库：https://github.com/facebookresearch/sam3
 
-SAM3 model weights are downloaded automatically from HuggingFace on the first run. A free HuggingFace account is required:
+### 4. HuggingFace 登录（首次运行时下载模型权重）
 
 ```bash
-pip install huggingface_hub
 huggingface-cli login
 ```
 
 ---
 
-## Prerequisites
+## 运行 ./script/run_needle_3d.sh
 
-You need a **trained YOLOv8 weight file** (`.pt`) for surgical needle detection. The default path is:
+### 前提条件
 
-```
-runs/needle/exp1/weights/best.pt
-```
+- 训练好的 YOLOv8 权重文件（位置：yolo_weights/best.pt）
+- 左右双目图像各一张（位置：`example_img/left/` 和 `example_img/right/`）
+- 相机参数使用的是转换成适配1920*1080图片的 camera_calibration_1920_1080.yaml
 
-You can override this with the `--yolo_weights` argument (see Usage below).
+### 基本用法
 
----
-
-## Usage
-
-### Single Image
+编辑 `script/run_needle_3d.sh` 顶部的默认路径，或通过环境变量/命令行参数传入：
 
 ```bash
-python detection_to_segmentation.py --image path/to/image.jpg
+# 使用脚本内默认路径（example_img/ 下的示例图 + yolo_weights/best.pt）
+./script/run_needle_3d.sh
+
+# 指定图像和权重路径
+./script/run_needle_3d.sh \
+    --left  example_img/left/img_0001.jpg \
+    --right example_img/right/img_0001.jpg \
+    --weights yolo_weights/best.pt
+
+# 不保存可视化图（仅输出 .npz）
+./script/run_needle_3d.sh --no-vis
 ```
 
-### Single Image with Custom Weights
+也可通过环境变量设置默认路径：
 
 ```bash
-python detection_to_segmentation.py --image path/to/image.jpg --yolo_weights path/to/best.pt
+export LEFT_IMG=example_img/left/img_0001.jpg
+export RIGHT_IMG=example_img/right/img_0001.jpg
+export YOLO_WEIGHTS=yolo_weights/best.pt
+./script/run_needle_3d.sh
 ```
 
-### Batch Processing (Entire Folder)
-
-```bash
-python detection_to_segmentation.py --image_dir path/to/folder/ --yolo_weights path/to/best.pt
-```
-
-Supported image formats for batch mode: `.jpg`, `.jpeg`, `.png`, `.bmp`
-
-### All Arguments
-
-| Argument | Default | Description |
-|---|---|---|
-| `--image` | — | Path to a single input image |
-| `--image_dir` | — | Path to a folder for batch processing |
-| `--yolo_weights` | `runs/needle/exp1/weights/best.pt` | Path to YOLOv8 weight file |
-| `--conf` | `0.25` | YOLO detection confidence threshold |
-| `--expand` | `1.4` | Bounding box expansion ratio (1.4 = 40% enlargement) |
-
----
-
-## Output
-
-For each processed image, a result file named `<original_name>_result.jpg` is saved in the same directory. The result image contains:
-
-- Detected needles highlighted with color-coded semi-transparent mask overlays
-- Enlarged bounding boxes with confidence scores
-
-The pipeline also returns a Python dictionary for downstream use (e.g., robotic grasping):
+### 读取结果
 
 ```python
-{
-    "boxes_xyxy": np.ndarray,   # Enlarged bounding boxes [N, 4]
-    "masks":      list,          # Per-needle binary masks [H, W] bool
-    "scores":     list,          # SAM3 confidence scores per mask
-}
+import numpy as np
+
+data = np.load('outputs_3d/needle_3d.npz')
+print(data['midpoint_mm'])    # 3D 抓取点 [x, y, z]，单位 mm
+print(data['radius_mm'])      # 针的圆弧半径
 ```
 
----
-
-## Configuration
-
-Key parameters can be adjusted at the top of the script:
-
-```python
-YOLO_WEIGHTS = "runs/needle/exp1/weights/best.pt"  # Path to trained weights
-YOLO_CONF    = 0.25       # Detection confidence threshold
-BOX_EXPAND   = 1.4        # Bounding box enlargement factor
-SAM3_TEXT    = "suturing needle"  # Text prompt passed to SAM3
-```
-
----
-
-## Dependencies Summary
-
-| Package | Purpose | Install |
-|---|---|---|
-| `ultralytics` | YOLOv8 detection | `pip install ultralytics` |
-| `sam3` | Instance segmentation | Install from source (see above) |
-| `torch` | Deep learning backend | `pip install torch` |
-| `opencv-python` | Image I/O and visualization | `pip install opencv-python` |
-| `Pillow` | Image loading for SAM3 | `pip install Pillow` |
-| `numpy` | Array operations | `pip install numpy` |
-| `huggingface_hub` | Downloading SAM3 weights | `pip install huggingface_hub` |
