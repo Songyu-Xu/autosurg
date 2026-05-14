@@ -1,18 +1,13 @@
 """
 Fully automated surgical needle detection and segmentation pipeline.
-YOLOv8 detector -> Box Enlarge -> SAM3 segmentation
+YOLOv8 detector -> Box Enlarge -> SAM-HQ segmentation
 
 Usage:
     python needle_pipeline.py --image path/to/image.jpg
     python needle_pipeline.py --image path/to/image.jpg --yolo_weights path/to/best.pt
 
 Dependencies:
-    pip install ultralytics
-    # SAM3 must be installed from GitHub:
-    # git clone https://github.com/facebookresearch/sam3
-    # cd sam3 && pip install -e .
-    # HuggingFace login is required to download model weights (free):
-    # huggingface-cli login
+    pip install ultralytics transformers
 """
 
 import argparse
@@ -24,12 +19,12 @@ from PIL import Image
 
 
 # ─────────────────────────── Config ───────────────────────────
-YOLO_WEIGHTS = "runs/needle/exp1/weights/best.pt"  # path to trained YOLOv8 weights
-YOLO_CONF    = 0.25        # YOLO detection confidence threshold
-BOX_EXPAND   = 1.1         # box expansion ratio (1.4 = expand by 40%)
-SAM3_TEXT    = "suturing needle"  # text prompt passed to SAM3 (improves stability)
-FIT_ARC      = True        # fit a circular arc to the mask to recover the needle midpoint
-DEVICE       = "cuda" if torch.cuda.is_available() else "cpu"
+YOLO_WEIGHTS      = "runs/needle/exp1/weights/best.pt"  # path to trained YOLOv8 weights
+YOLO_CONF         = 0.25        # YOLO detection confidence threshold
+BOX_EXPAND        = 1.1         # box expansion ratio (1.4 = expand by 40%)
+SAMHQ_CHECKPOINT  = Path(__file__).parent / "models" / "sam-hq-vit-large"  # local weights dir; fallback to HF hub ID if path absent
+FIT_ARC           = True        # fit a circular arc to the mask to recover the needle midpoint
+DEVICE            = "cuda" if torch.cuda.is_available() else "cpu"
 
 
 # ─────────────────────────── YOLO Detection + Box Enlarge ─────────────────────────
@@ -93,102 +88,80 @@ def detect_and_enlarge(image_path: str,
     return np.array([[nx1, ny1, nx2, ny2]]), img_w, img_h
 
 
-def xyxy_to_xywh_norm(box_xyxy: np.ndarray, img_w: int, img_h: int) -> np.ndarray:
-    """
-    Convert absolute XYXY coordinates to normalized [cx, cy, w, h] format
-    required by SAM3's add_geometric_prompt.
-    """
-    x1, y1, x2, y2 = box_xyxy
-    cx = ((x1 + x2) / 2) / img_w
-    cy = ((y1 + y2) / 2) / img_h
-    w  = (x2 - x1) / img_w
-    h  = (y2 - y1) / img_h
-    return np.array([cx, cy, w, h], dtype=np.float32)
+# ─────────────────────────── SAM-HQ Segmentation ───────────────────────────
+def load_samhq():
+    """Load and return (samhq_model, samhq_processor). Call once and reuse across images."""
+    from transformers import SamHQModel, SamHQProcessor
 
+    checkpoint = str(SAMHQ_CHECKPOINT)
+    if isinstance(SAMHQ_CHECKPOINT, Path) and not SAMHQ_CHECKPOINT.exists():
+        raise FileNotFoundError(
+            f"[SAM-HQ] Local weights not found at '{SAMHQ_CHECKPOINT}'.\n"
+            f"  Download the model from HuggingFace and place it there:\n"
+            f"    huggingface-cli download syscv-community/sam-hq-vit-large"
+            f" --local-dir {SAMHQ_CHECKPOINT}"
+        )
 
-# ─────────────────────────── SAM3 Segmentation ───────────────────────────
-def load_sam3():
-    """Load and return (sam3_model, Sam3Processor). Call once and reuse across images."""
-    from sam3.model_builder import build_sam3_image_model
-    from sam3.model.sam3_image_processor import Sam3Processor
-
-    torch.backends.cuda.matmul.allow_tf32 = True
-    torch.backends.cudnn.allow_tf32 = True
-
-    print("[SAM3] Loading model (weights will be downloaded on first run)...")
-    model = build_sam3_image_model().to(DEVICE)
-    processor = Sam3Processor(model)
+    print(f"[SAM-HQ] Loading model from '{checkpoint}'...")
+    model = SamHQModel.from_pretrained(checkpoint).to(DEVICE)
+    model.eval()
+    processor = SamHQProcessor.from_pretrained(checkpoint)
     return model, processor
 
 
-def sam3_segment(image_path: str,
-                 boxes_xyxy: np.ndarray,
-                 img_w: int,
-                 img_h: int,
-                 text_prompt: str = SAM3_TEXT,
-                 sam3_model=None,
-                 sam3_processor=None):
+def samhq_segment(image_path: str,
+                  boxes_xyxy: np.ndarray,
+                  samhq_model=None,
+                  samhq_processor=None):
     """
-    Run SAM3 fine-grained segmentation for each detected box.
-    Both box + text prompts are used together to improve stability on
-    small targets like surgical needles.
+    Run SAM-HQ segmentation for each detected box using box prompts.
 
     Args:
-        sam3_model, sam3_processor: pre-loaded instances (avoids reloading every call).
-                                    If either is None, both are loaded fresh.
+        samhq_model, samhq_processor: pre-loaded instances (avoids reloading every call).
+                                      If either is None, both are loaded fresh.
 
     Returns:
         all_masks: list of np.ndarray, each with shape [H, W], dtype bool
         all_scores: list of float
     """
-    if sam3_model is None or sam3_processor is None:
-        sam3_model, sam3_processor = load_sam3()
-    model, processor = sam3_model, sam3_processor
+    if samhq_model is None or samhq_processor is None:
+        samhq_model, samhq_processor = load_samhq()
+    model, processor = samhq_model, samhq_processor
 
     image = Image.open(image_path).convert("RGB")
 
     all_masks  = []
     all_scores = []
 
-    # Wrap entire inference loop in autocast to keep all ops in bfloat16
-    with torch.autocast("cuda", dtype=torch.bfloat16):
-        for i, box_xyxy in enumerate(boxes_xyxy):
-            print(f"[SAM3] Processing target {i+1}/{len(boxes_xyxy)}...")
+    for i, box_xyxy in enumerate(boxes_xyxy):
+        print(f"[SAM-HQ] Processing target {i+1}/{len(boxes_xyxy)}...")
 
-            # Each box gets its own independent inference state
-            state = processor.set_image(image)
+        # processor expects input_boxes: [batch [image [boxes [x1,y1,x2,y2]]]]
+        inputs = processor(
+            image,
+            input_boxes=[[[box_xyxy.tolist()]]],
+            return_tensors="pt"
+        ).to(DEVICE)
 
-            # ── Option A: joint text + box prompt (recommended, most stable) ──
-            # Pass text prompt first for coarse localization
-            output = processor.set_text_prompt(state=state, prompt=text_prompt)
+        with torch.no_grad():
+            outputs = model(**inputs, multimask_output=True, hq_token_only=False)
 
-            # Then refine with box prompt
-            box_norm = xyxy_to_xywh_norm(box_xyxy, img_w, img_h)
-            # label=1 means foreground
-            output = processor.add_geometric_prompt(
-                box=box_norm,
-                label=1,
-                state=state
-            )
+        # Post-process masks back to original image size -> list[tensor[num_masks, H, W]]
+        masks = processor.image_processor.post_process_masks(
+            outputs.pred_masks.cpu(),
+            inputs["original_sizes"].cpu(),
+            inputs["reshaped_input_sizes"].cpu()
+        )[0][0]  # [num_masks, H, W]
 
-            # ── Option B: box-only prompt (try this if Option A gives poor results) ──
-            # state = processor.set_image(image)
-            # box_norm = xyxy_to_xywh_norm(box_xyxy, img_w, img_h)
-            # output = processor.add_geometric_prompt(box=box_norm, label=1, state=state)
+        scores = outputs.iou_scores[0, 0].cpu().float().numpy()  # [num_masks]
 
-            # Cast to float32 before calling .numpy() because numpy does not support
-            # BFloat16 — tensors remain BFloat16 inside the autocast context.
-            masks  = output["masks"].cpu().float().numpy()   # [N, 1, H, W]
-            scores = output["scores"].cpu().float().numpy()  # [N]
+        best_idx   = int(scores.argmax())
+        best_mask  = masks[best_idx].numpy().astype(bool)  # [H, W]
+        best_score = float(scores[best_idx])
 
-            # Select the mask with the highest confidence score
-            best_idx   = scores.argmax()
-            best_mask  = masks[best_idx, 0].astype(bool)  # [H, W]
-            best_score = float(scores[best_idx])
-
-            all_masks.append(best_mask)
-            all_scores.append(best_score)
-            print(f"  -> mask score: {best_score:.3f}")
+        all_masks.append(best_mask)
+        all_scores.append(best_score)
+        print(f"  -> mask score: {best_score:.3f}")
 
     return all_masks, all_scores
 
@@ -235,7 +208,7 @@ def fit_needle_arc(mask: np.ndarray):
     Fit a circular arc to a (possibly broken) needle mask and return the arc
     midpoint plus supporting geometry.
 
-    A suturing needle is a circular arc, so even when SAM3's mask is split
+    A suturing needle is a circular arc, so even when the segmentation mask is split
     into two disjoint segments (e.g. due to specular reflection), both
     segments still lie on the same underlying circle. The arc midpoint is
     defined along the needle body — NOT the mask centroid, which would bias
@@ -440,10 +413,10 @@ def run_pipeline(image_path: str,
                  fit_arc: bool = FIT_ARC,
                  output_path: str = None,
                  yolo_model=None,
-                 sam3_model=None,
-                 sam3_processor=None):
+                 samhq_model=None,
+                 samhq_processor=None):
     """
-    Run the full detection -> segmentation -> arc-fitting pipeline on a single image.
+    Run the full detection -> SAM-HQ segmentation -> arc-fitting pipeline on a single image.
 
     Args:
         image_path:      path to the input image
@@ -458,9 +431,9 @@ def run_pipeline(image_path: str,
                          - If a full file path is given, it is used as-is.
                          - If None, the result is saved next to the input image
                            as <original_stem>_result.jpg.
-        yolo_model:      pre-loaded YOLO instance; if None, loads from yolo_weights.
-        sam3_model,
-        sam3_processor:  pre-loaded SAM3 instances; if either is None, loads fresh.
+        yolo_model:        pre-loaded YOLO instance; if None, loads from yolo_weights.
+        samhq_model,
+        samhq_processor:   pre-loaded SAM-HQ instances; if either is None, loads fresh.
     """
     print(f"\n{'='*50}")
     print(f"Input image   : {image_path}")
@@ -496,11 +469,11 @@ def run_pipeline(image_path: str,
 
     print(f"  {len(boxes_xyxy)} target(s) detected\n")
 
-    # Step 2: SAM3 fine-grained segmentation
-    print("[Step 2] SAM3 segmentation...")
-    masks, scores = sam3_segment(
-        image_path, boxes_xyxy, img_w, img_h,
-        sam3_model=sam3_model, sam3_processor=sam3_processor)
+    # Step 2: SAM-HQ fine-grained segmentation
+    print("[Step 2] SAM-HQ segmentation...")
+    masks, scores = samhq_segment(
+        image_path, boxes_xyxy,
+        samhq_model=samhq_model, samhq_processor=samhq_processor)
 
     # Step 3: arc fitting (optional)
     arc_infos = None
@@ -535,7 +508,7 @@ def run_batch(image_dir: str,
               output_dir: str = None):
     """
     Run the pipeline on all images in a directory.
-    YOLO and SAM3 are loaded exactly once and reused across all images.
+    YOLO and SAM-HQ are loaded exactly once and reused across all images.
 
     Args:
         image_dir:    directory containing input images
@@ -555,15 +528,15 @@ def run_batch(image_dir: str,
     # Load both models once before the loop
     print("\n[Batch] Loading models once for all images...")
     yolo_model = load_yolo(yolo_weights)
-    sam3_model, sam3_processor = load_sam3()
+    samhq_model, samhq_processor = load_samhq()
     print("[Batch] Models ready.\n")
 
     for img_path in images:
         run_pipeline(str(img_path), yolo_weights, conf, expand,
                      fit_arc=fit_arc, output_path=output_dir,
                      yolo_model=yolo_model,
-                     sam3_model=sam3_model,
-                     sam3_processor=sam3_processor)
+                     samhq_model=samhq_model,
+                     samhq_processor=samhq_processor)
 
 
 # ─────────────────────────── CLI ───────────────────────────

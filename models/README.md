@@ -1,0 +1,1 @@
+SAM-HQ models can be downloaded from: [SAM-HQ models on Hugging Face](https://huggingface.co/syscv-community)

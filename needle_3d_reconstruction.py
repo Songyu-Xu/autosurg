@@ -2,7 +2,7 @@
 Stereo 3D Needle Midpoint Reconstruction
 
 Pipeline:
-  1. Run YOLO + SAM3 on left and right images.
+  1. Run YOLO + SAM-HQ on left and right images.
   2. Extract 2D skeleton from each mask.
   3. Undistort skeleton points.
   4. Epipolar matching using stereo calibration.
@@ -50,6 +50,9 @@ def parse_args():
                    help='RANSAC inlier threshold for 3D circle fit (mm)')
     p.add_argument('--ransac-iters',    type=int,   default=300,
                    help='Number of RANSAC iterations')
+    p.add_argument('--swap-cameras', action='store_true',
+                   help='Swap K1/K2 assignments (use when left image was taken by '
+                        'the physical camera that corresponds to K2 in the calibration)')
     p.add_argument('--no-vis', action='store_true',
                    help='Skip saving visualisation plots')
     return p.parse_args()
@@ -198,6 +201,8 @@ def epipolar_match(pts_L, pts_R, F, max_dist_px=3.0):
 
     best_idx = dists.argmin(axis=1)
     best_d   = dists[np.arange(len(pts_L)), best_idx]
+    print(f'  epipolar dist — min:{best_d.min():.2f} median:{np.median(best_d):.2f} '
+          f'p90:{np.percentile(best_d,90):.2f} max:{best_d.max():.2f} px')
     keep = best_d <= max_dist_px
     return pts_L[keep], pts_R[best_idx[keep]]
 
@@ -570,6 +575,12 @@ def main():
 
     # --- Calibration ---
     K1, K2, D1, D2, R, T, IMG_W, _ = load_calibration(args.calib)
+    if args.swap_cameras:
+        K1, K2 = K2, K1
+        D1, D2 = D2, D1
+        R = R.T
+        T = -R @ T
+        print('[swap-cameras] K1/K2 and R/T swapped.')
     print('Calibration loaded.')
     print('K1 =\n', K1)
     print('K2 =\n', K2)
@@ -578,27 +589,27 @@ def main():
 
     # --- Load detection models (once) ---
     sys.path.insert(0, str(Path(__file__).parent))
-    from detection_to_segmentation import load_yolo, load_sam3, run_pipeline
+    from detection_to_segmentation import load_yolo, load_samhq, run_pipeline
 
     yolo_model = load_yolo(args.weights)
-    sam3_model, sam3_processor = load_sam3()
+    samhq_model, samhq_processor = load_samhq()
 
-    # --- Run YOLO + SAM3 ---
-    print('\n[1/7] Running YOLO + SAM3 on left image ...')
+    # --- Run YOLO + SAM-HQ ---
+    print('\n[1/7] Running YOLO + SAM-HQ on left image ...')
     left_result = run_pipeline(
         args.left, args.weights,
         conf=args.conf, expand=args.box_expand, fit_arc=False,
         output_path=str(output_dir),
         yolo_model=yolo_model,
-        sam3_model=sam3_model, sam3_processor=sam3_processor)
+        samhq_model=samhq_model, samhq_processor=samhq_processor)
 
-    print('[1/7] Running YOLO + SAM3 on right image ...')
+    print('[1/7] Running YOLO + SAM-HQ on right image ...')
     right_result = run_pipeline(
         args.right, args.weights,
         conf=args.conf, expand=args.box_expand, fit_arc=False,
         output_path=str(output_dir),
         yolo_model=yolo_model,
-        sam3_model=sam3_model, sam3_processor=sam3_processor)
+        samhq_model=samhq_model, samhq_processor=samhq_processor)
 
     assert left_result is not None and right_result is not None, \
         'YOLO failed to detect the needle in one or both views'
@@ -649,6 +660,12 @@ def main():
     valid  = (pts3d[:, 2] > 0) & (pts3d[:, 2] < 1.0)
     pts3d  = pts3d[valid]
     print(f'  {len(pts3d)} valid 3D points')
+    if len(pts3d) == 0:
+        print('  [ERROR] No valid 3D points. Possible causes:')
+        print('    1. Epipolar matching failed — try --epipolar-thresh 10 (or larger)')
+        print('    2. Camera assignment is wrong — try adding --swap-cameras')
+        print('    3. Calibration does not match these images')
+        return
     print(f'  Z range: {pts3d[:, 2].min():.4f} .. {pts3d[:, 2].max():.4f} m')
     print(f'  centroid: {pts3d.mean(axis=0)}')
 
