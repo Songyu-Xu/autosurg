@@ -618,7 +618,7 @@ def main():
 
     # --- Load detection models (once) ---
     sys.path.insert(0, str(Path(__file__).parent))
-    from detection_to_segmentation import load_yolo, load_sam3, run_pipeline
+    from detection_to_segmentation import load_yolo, load_sam3, run_pipeline, sam3_segment, visualize_and_save
 
     yolo_model = load_yolo(args.weights)
     sam3_model, sam3_processor = load_sam3()
@@ -640,8 +640,43 @@ def main():
         yolo_model=yolo_model,
         sam3_model=sam3_model, sam3_processor=sam3_processor)
 
-    assert left_result is not None and right_result is not None, \
-        'YOLO failed to detect the needle in one or both views'
+    assert left_result is not None, \
+        'YOLO failed to detect the needle in the left view'
+
+    # Fallback: if right YOLO detection failed, borrow the left box and expand by 1.1
+    if right_result is None:
+        print('[WARN] YOLO found no needle in the right image — '
+              'falling back to left detection box ×1.1')
+        img_R_bgr = cv2.imread(args.right)
+        img_h_R, img_w_R = img_R_bgr.shape[:2]
+
+        lx1, ly1, lx2, ly2 = left_result['boxes_xyxy'][0]
+        cx, cy = (lx1 + lx2) / 2, (ly1 + ly2) / 2
+        hw, hh = (lx2 - lx1) * 1.1 / 2, (ly2 - ly1) * 1.1 / 2
+        fb_box = np.array([[
+            max(0.0,       cx - hw),
+            max(0.0,       cy - hh),
+            min(img_w_R,   cx + hw),
+            min(img_h_R,   cy + hh),
+        ]])
+        print(f'  fallback box: {fb_box[0].astype(int).tolist()}')
+
+        masks_R, scores_R = sam3_segment(
+            args.right, fb_box, img_w_R, img_h_R,
+            sam3_model=sam3_model, sam3_processor=sam3_processor)
+
+        stem_R = Path(args.right).stem
+        vis_R = visualize_and_save(
+            args.right, fb_box, masks_R, scores_R,
+            output_path=str(output_dir / f'{stem_R}_result.jpg'))
+
+        right_result = {
+            'boxes_xyxy': fb_box,
+            'masks':      masks_R,
+            'scores':     scores_R,
+            'arc_infos':  None,
+            'result_img': vis_R,
+        }
 
     mask_L = left_result['masks'][0]
     mask_R = right_result['masks'][0]
