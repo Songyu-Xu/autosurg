@@ -443,14 +443,28 @@ def save_segmentation_plot(img_L, img_R, mask_L, mask_R, out_path):
     print(f'saved segmentation plot -> {out_path}')
 
 
-def save_detection_plot(result_img_L, result_img_R, out_path):
+def save_detection_plot(result_img_L, result_img_R, out_path,
+                        left_borrowed=False, right_borrowed=False):
     """Show YOLO detection results for left and right images side-by-side."""
+    titles = [
+        'Left detection' + (' [borrowed from RIGHT ×1.1]' if left_borrowed else ''),
+        'Right detection' + (' [borrowed from LEFT ×1.1]' if right_borrowed else ''),
+    ]
+    borrowed_flags = [left_borrowed, right_borrowed]
     _, axes = plt.subplots(1, 2, figsize=(14, 6))
-    for ax, img, title in zip(axes,
-                               [result_img_L, result_img_R],
-                               ['Left detection', 'Right detection']):
-        ax.imshow(cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
-        ax.set_title(title)
+    for ax, img, title, is_borrowed in zip(axes,
+                                            [result_img_L, result_img_R],
+                                            titles, borrowed_flags):
+        rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+        if is_borrowed:
+            rgb = rgb.copy()
+            border = 10
+            rgb[:border, :] = [255, 140, 0]
+            rgb[-border:, :] = [255, 140, 0]
+            rgb[:, :border] = [255, 140, 0]
+            rgb[:, -border:] = [255, 140, 0]
+        ax.imshow(rgb)
+        ax.set_title(title, color='darkorange' if is_borrowed else 'black', fontweight='bold')
         ax.axis('off')
     plt.tight_layout()
     plt.savefig(out_path, dpi=150)
@@ -640,8 +654,47 @@ def main():
         yolo_model=yolo_model,
         sam3_model=sam3_model, sam3_processor=sam3_processor)
 
-    assert left_result is not None, \
-        'YOLO failed to detect the needle in the left view'
+    assert left_result is not None or right_result is not None, \
+        'YOLO failed to detect the needle in both views'
+
+    left_borrowed = False
+    right_borrowed = False
+
+    # Fallback: if left YOLO detection failed, borrow the right box and expand by 1.1
+    if left_result is None:
+        print('[WARN] YOLO found no needle in the left image — '
+              'falling back to right detection box ×1.1')
+        img_L_bgr = cv2.imread(args.left)
+        img_h_L, img_w_L = img_L_bgr.shape[:2]
+
+        rx1, ry1, rx2, ry2 = right_result['boxes_xyxy'][0]
+        cx, cy = (rx1 + rx2) / 2, (ry1 + ry2) / 2
+        hw, hh = (rx2 - rx1) * 1.1 / 2, (ry2 - ry1) * 1.1 / 2
+        fb_box_L = np.array([[
+            max(0.0,       cx - hw),
+            max(0.0,       cy - hh),
+            min(img_w_L,   cx + hw),
+            min(img_h_L,   cy + hh),
+        ]])
+        print(f'  fallback box (left): {fb_box_L[0].astype(int).tolist()}')
+
+        masks_L, scores_L = sam3_segment(
+            args.left, fb_box_L, img_w_L, img_h_L,
+            sam3_model=sam3_model, sam3_processor=sam3_processor)
+
+        stem_L = Path(args.left).stem
+        vis_L = visualize_and_save(
+            args.left, fb_box_L, masks_L, scores_L,
+            output_path=str(output_dir / f'{stem_L}_result.jpg'))
+
+        left_result = {
+            'boxes_xyxy': fb_box_L,
+            'masks':      masks_L,
+            'scores':     scores_L,
+            'arc_infos':  None,
+            'result_img': vis_L,
+        }
+        left_borrowed = True
 
     # Fallback: if right YOLO detection failed, borrow the left box and expand by 1.1
     if right_result is None:
@@ -677,6 +730,7 @@ def main():
             'arc_infos':  None,
             'result_img': vis_R,
         }
+        right_borrowed = True
 
     mask_L = left_result['masks'][0]
     mask_R = right_result['masks'][0]
@@ -688,7 +742,8 @@ def main():
 
     if not args.no_vis:
         save_detection_plot(left_result['result_img'], right_result['result_img'],
-                            output_dir / 'detection.png')
+                            output_dir / 'detection.png',
+                            left_borrowed=left_borrowed, right_borrowed=right_borrowed)
         save_segmentation_plot(img_L, img_R, mask_L, mask_R,
                                output_dir / 'segmentation.png')
 
