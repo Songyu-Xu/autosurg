@@ -143,8 +143,8 @@ def sam3_segment(image_path: str,
                  sam3_processor=None):
     """
     Run SAM3 fine-grained segmentation for each detected box.
-    Both box + text prompts are used together to improve stability on
-    small targets like surgical needles.
+    Only the text prompt is used; the box is used solely to crop the image
+    region fed to SAM3, not as a geometric prompt.
 
     Args:
         sam3_model, sam3_processor: pre-loaded instances (avoids reloading every call).
@@ -170,27 +170,13 @@ def sam3_segment(image_path: str,
 
             # Compute square crop around detection box
             crop_x1, crop_y1, crop_x2, crop_y2 = _square_crop_region(box_xyxy, img_w, img_h)
-            crop_w = crop_x2 - crop_x1
-            crop_h = crop_y2 - crop_y1
 
             # Crop the PIL image to the square region
             cropped_image = image.crop((crop_x1, crop_y1, crop_x2, crop_y2))
 
-            # Shift box coords to crop-relative space, clamp to crop bounds
-            bx1, by1, bx2, by2 = box_xyxy
-            rel_x1 = max(0.0,           bx1 - crop_x1)
-            rel_y1 = max(0.0,           by1 - crop_y1)
-            rel_x2 = min(float(crop_w), bx2 - crop_x1)
-            rel_y2 = min(float(crop_h), by2 - crop_y1)
-
-            # Normalize box relative to crop dimensions
-            box_norm = xyxy_to_xywh_norm(
-                np.array([rel_x1, rel_y1, rel_x2, rel_y2]), crop_w, crop_h)
-
-            # Run SAM3 on the cropped image
+            # Run SAM3 on the cropped image with text prompt only (no box prompt)
             state  = processor.set_image(cropped_image)
             output = processor.set_text_prompt(state=state, prompt=text_prompt)
-            output = processor.add_geometric_prompt(box=box_norm, label=1, state=state)
 
             # Cast to float32 before calling .numpy() (tensors are BFloat16 inside autocast)
             masks  = output["masks"].cpu().float().numpy()   # [N, 1, crop_h, crop_w]
