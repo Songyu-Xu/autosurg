@@ -39,7 +39,7 @@ export CUDA_VISIBLE_DEVICES="${GPU}"
 LEFT_IMG="${LEFT_IMG:-/home/songyu/Datasets/Autosurg/cuhk/May13_test/Test_image/test_peg_paddle_3/left/img_0001.jpg}"
 RIGHT_IMG="${RIGHT_IMG:-/home/songyu/Datasets/Autosurg/cuhk/May13_test/Test_image/test_peg_paddle_3/right/img_0001.jpg}"
 YOLO_WEIGHTS="${YOLO_WEIGHTS:-/home/songyu/Project/yolo/YOLOv8_needle/runs/detect/runs/needle_finetune/cuhk_v1/weights/best.pt}"
-OUTPUT_DIR="${OUTPUT_DIR:-${PROJECT_DIR}/outputs_3d/May13/test_peg_paddle_3/img_0001/}"
+OUTPUT_DIR="${OUTPUT_DIR:-${PROJECT_DIR}/outputs_3d/May13/test_peg_paddle_3/img_0001_text_prompt/}"
 
 # Optional: point to a stereo_calib.npz to override the built-in calibration.
 # CALIB_NPZ="${SCRIPT_DIR}/stereo_calib.npz"
