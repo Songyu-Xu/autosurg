@@ -115,7 +115,7 @@ def keep_large_components(mask, min_ratio=0.15):
 
 
 def order_skeleton(skel):
-    """Walk skeleton pixels along the curve. Returns (N, 2) array of (u, v) in order."""
+    """Walk ALL skeleton pixels across all connected components. Returns (N, 2) array of (u, v)."""
     skel = skel.astype(np.uint8)
     pix = set(map(tuple, np.argwhere(skel)))  # (y, x) pairs
     if not pix:
@@ -127,20 +127,25 @@ def order_skeleton(skel):
         y, x = p
         return [(y+dy, x+dx) for dy, dx in nbrs8 if (y+dy, x+dx) in pix]
 
-    endpoints = [p for p in pix if len(neighbors(p)) == 1]
-    start = endpoints[0] if endpoints else next(iter(pix))
+    chain = []
+    visited = set()
 
-    chain = [start]
-    visited = {start}
-    while True:
-        cur = chain[-1]
-        cands = [q for q in neighbors(cur) if q not in visited]
-        if not cands:
-            break
-        cands.sort(key=lambda q: (abs(q[0]-cur[0]) + abs(q[1]-cur[1]), q))
-        nxt = cands[0]
-        chain.append(nxt)
-        visited.add(nxt)
+    while len(visited) < len(pix):
+        remaining = pix - visited
+        endpoints = [p for p in remaining if len([q for q in neighbors(p) if q not in visited]) == 1]
+        start = endpoints[0] if endpoints else next(iter(remaining))
+
+        chain.append(start)
+        visited.add(start)
+        while True:
+            cur = chain[-1]
+            cands = [q for q in neighbors(cur) if q not in visited]
+            if not cands:
+                break
+            cands.sort(key=lambda q: (abs(q[0]-cur[0]) + abs(q[1]-cur[1]), q))
+            nxt = cands[0]
+            chain.append(nxt)
+            visited.add(nxt)
 
     return np.array([(x, y) for (y, x) in chain], dtype=np.float32)
 
