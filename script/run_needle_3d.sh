@@ -21,25 +21,43 @@ export CUDA_VISIBLE_DEVICES="${GPU}"
 # LEFT_IMG="${LEFT_IMG:-/home/songyu/Datasets/Autosurg/cuhk/May13_test/Test_image/test_black_background/left/img_0001.jpg}"
 # RIGHT_IMG="${RIGHT_IMG:-/home/songyu/Datasets/Autosurg/cuhk/May13_test/Test_image/test_black_background/right/img_0001.jpg}"
 # YOLO_WEIGHTS="${YOLO_WEIGHTS:-/home/songyu/Project/yolo/YOLOv8_needle/runs/detect/runs/needle_finetune/cuhk_v1/weights/best.pt}"
-# OUTPUT_DIR="${OUTPUT_DIR:-${PROJECT_DIR}/outputs_3d/May13/test_black_backgound/cropped_left_skeleton_only/img_0001}"
+# OUTPUT_DIR="${OUTPUT_DIR:-${PROJECT_DIR}/outputs_3d/May13/test_black_backgound/img_0001_text_prompt/}"
 
 # test_peg_paddle
 # LEFT_IMG="${LEFT_IMG:-/home/songyu/Datasets/Autosurg/cuhk/May13_test/Test_image/test_peg_paddle/left/img_0001.jpg}"
 # RIGHT_IMG="${RIGHT_IMG:-/home/songyu/Datasets/Autosurg/cuhk/May13_test/Test_image/test_peg_paddle/right/img_0001.jpg}"
 # YOLO_WEIGHTS="${YOLO_WEIGHTS:-/home/songyu/Project/yolo/YOLOv8_needle/runs/detect/runs/needle_finetune/cuhk_v1/weights/best.pt}"
-# OUTPUT_DIR="${OUTPUT_DIR:-${PROJECT_DIR}/outputs_3d/May13/test_peg_paddle/img_0001/}"
+# OUTPUT_DIR="${OUTPUT_DIR:-${PROJECT_DIR}/outputs_3d/May13/test_peg_paddle/img_0001_text_prompt/}"
 
 # test_peg_paddle_2
 # LEFT_IMG="${LEFT_IMG:-/home/songyu/Datasets/Autosurg/cuhk/May13_test/Test_image/test_peg_paddle_2/left/img_0001.jpg}"
 # RIGHT_IMG="${RIGHT_IMG:-/home/songyu/Datasets/Autosurg/cuhk/May13_test/Test_image/test_peg_paddle_2/right/img_0001.jpg}"
 # YOLO_WEIGHTS="${YOLO_WEIGHTS:-/home/songyu/Project/yolo/YOLOv8_needle/runs/detect/runs/needle_finetune/cuhk_v1/weights/best.pt}"
-# OUTPUT_DIR="${OUTPUT_DIR:-${PROJECT_DIR}/outputs_3d/May13/test_peg_paddle_2/img_0001/}"
+# OUTPUT_DIR="${OUTPUT_DIR:-${PROJECT_DIR}/outputs_3d/May13/test_peg_paddle_2/img_0001_text_prompt/}"
 
 # test_peg_paddle_3
-LEFT_IMG="${LEFT_IMG:-/home/songyu/Datasets/Autosurg/cuhk/May13_test/Test_image/test_peg_paddle_3/left/img_0001.jpg}"
-RIGHT_IMG="${RIGHT_IMG:-/home/songyu/Datasets/Autosurg/cuhk/May13_test/Test_image/test_peg_paddle_3/right/img_0001.jpg}"
+# LEFT_IMG="${LEFT_IMG:-/home/songyu/Datasets/Autosurg/cuhk/May13_test/Test_image/test_peg_paddle_3/left/img_0001.jpg}"
+# RIGHT_IMG="${RIGHT_IMG:-/home/songyu/Datasets/Autosurg/cuhk/May13_test/Test_image/test_peg_paddle_3/right/img_0001.jpg}"
+# YOLO_WEIGHTS="${YOLO_WEIGHTS:-/home/songyu/Project/yolo/YOLOv8_needle/runs/detect/runs/needle_finetune/cuhk_v1/weights/best.pt}"
+# OUTPUT_DIR="${OUTPUT_DIR:-${PROJECT_DIR}/outputs_3d/May13/test_peg_paddle_3/img_0001_text_prompt/}"
+
+# test_peg_paddle_4
+# LEFT_IMG="${LEFT_IMG:-/home/songyu/Datasets/Autosurg/cuhk/May13_test/Test_image/test_peg_paddle_4/left/img_0001.jpg}"
+# RIGHT_IMG="${RIGHT_IMG:-/home/songyu/Datasets/Autosurg/cuhk/May13_test/Test_image/test_peg_paddle_4/right/img_0001.jpg}"
+# YOLO_WEIGHTS="${YOLO_WEIGHTS:-/home/songyu/Project/yolo/YOLOv8_needle/runs/detect/runs/needle_finetune/cuhk_v1/weights/best.pt}"
+# OUTPUT_DIR="${OUTPUT_DIR:-${PROJECT_DIR}/outputs_3d/May13/test_peg_paddle_4/img_0001_text_prompt/}"
+
+# test_peg_paddle_no_light
+# LEFT_IMG="${LEFT_IMG:-/home/songyu/Datasets/Autosurg/cuhk/May13_test/Test_image/test_peg_paddle_no_light/left/img_0001.jpg}"
+# RIGHT_IMG="${RIGHT_IMG:-/home/songyu/Datasets/Autosurg/cuhk/May13_test/Test_image/test_peg_paddle_no_light/right/img_0001.jpg}"
+# YOLO_WEIGHTS="${YOLO_WEIGHTS:-/home/songyu/Project/yolo/YOLOv8_needle/runs/detect/runs/needle_finetune/cuhk_v1/weights/best.pt}"
+# OUTPUT_DIR="${OUTPUT_DIR:-${PROJECT_DIR}/outputs_3d/May13/test_peg_paddle_no_light/img_0001_text_prompt/}"
+
+# test_peg_paddle_no_light_2
+LEFT_IMG="${LEFT_IMG:-/home/songyu/Datasets/Autosurg/cuhk/May13_test/Test_image/test_peg_paddle_no_light_2/left/img_0001.jpg}"
+RIGHT_IMG="${RIGHT_IMG:-/home/songyu/Datasets/Autosurg/cuhk/May13_test/Test_image/test_peg_paddle_no_light_2/right/img_0001.jpg}"
 YOLO_WEIGHTS="${YOLO_WEIGHTS:-/home/songyu/Project/yolo/YOLOv8_needle/runs/detect/runs/needle_finetune/cuhk_v1/weights/best.pt}"
-OUTPUT_DIR="${OUTPUT_DIR:-${PROJECT_DIR}/outputs_3d/May13/test_peg_paddle_3/img_0001_text_prompt/}"
+OUTPUT_DIR="${OUTPUT_DIR:-${PROJECT_DIR}/outputs_3d/May13/test_peg_paddle_no_light_2/img_0001_text_prompt/}"
 
 # Optional: point to a stereo_calib.npz to override the built-in calibration.
 # CALIB_NPZ="${SCRIPT_DIR}/stereo_calib.npz"
